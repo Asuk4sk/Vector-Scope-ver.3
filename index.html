@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>矢量示波器 - Vector Scope</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Courier New', monospace;
+            background: #1a1a1a;
+            color: #33ff33;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            background: #0a0a0a;
+            border: 3px solid #006600;
+            border-radius: 10px;
+            padding: 30px;
+            max-width: 1200px;
+            width: 100%;
+        }
+
+        h1 {
+            text-align: center;
+            margin-bottom: 20px;
+            font-size: 24px;
+            text-shadow: 0 0 10px #33ff33;
+        }
+
+        .file-input-wrapper {
+            text-align: center;
+            margin-bottom: 20px;
+            padding: 20px;
+            border: 2px dashed #006600;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .file-input-wrapper:hover {
+            border-color: #33ff33;
+            background: #0d0d0d;
+        }
+
+        .file-input-wrapper input {
+            display: none;
+        }
+
+        .info {
+            text-align: center;
+            margin-bottom: 15px;
+            font-size: 14px;
+            color: #ffaa33;
+        }
+
+        .controls {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        button {
+            background: #006600;
+            color: #33ff33;
+            border: 2px solid #33ff33;
+            padding: 10px 20px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            cursor: pointer;
+            border-radius: 5px;
+            transition: all 0.3s;
+        }
+
+        button:hover {
+            background: #33ff33;
+            color: #000;
+        }
+
+        button:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+
+        .mode-selector {
+            text-align: center;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #006600;
+            padding-bottom: 15px;
+        }
+
+        .mode-selector label {
+            margin: 0 15px;
+            font-size: 14px;
+        }
+
+        .controls-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 15px;
+        }
+
+        .slider-container label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 12px;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            height: 5px;
+            background: #006600;
+            outline: none;
+            border-radius: 5px;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            appearance: none;
+            width: 15px;
+            height: 15px;
+            background: #33ff33;
+            cursor: pointer;
+            border-radius: 50%;
+        }
+
+        .progress-container {
+            margin-bottom: 15px;
+        }
+
+        .time-display {
+            text-align: center;
+            font-size: 16px;
+            margin-bottom: 15px;
+        }
+
+        .display-area {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }
+
+        canvas {
+            border: 3px solid #006600;
+            background: #000;
+            box-shadow: 0 0 20px rgba(51, 255, 51, 0.3);
+            border-radius: 5px;
+        }
+
+        #canvas3d { display: none; }
+        
+        .hint {
+            text-align: center;
+            margin-top: 15px;
+            font-size: 11px;
+            color: #ffaa33;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>VECTOR SCOPE - 多模式</h1>
+        
+        <div class="file-input-wrapper" id="fileWrapper">
+            <input type="file" id="audioFile" accept="audio/*">
+            <div>📁 点击选择音频文件或拖拽到此处</div>
+            <div style="font-size: 11px; color: #666; margin-top: 10px;">支持 WAV, MP3, 等格式 (需要立体声)</div>
+        </div>
+
+        <div class="info" id="info">未加载音频文件</div>
+
+        <div class="controls">
+            <button id="playBtn" disabled>▶ 播放</button>
+            <button id="pauseBtn" disabled>⏸ 暂停</button>
+            <button id="stopBtn" disabled>⏹ 停止</button>
+        </div>
+
+        <!-- 模式选择 -->
+        <div class="mode-selector">
+            <label style="font-weight: bold;">显示模式：</label>
+            <label><input type="radio" name="mode" value="2d"> 2D XY 模式</label>
+            <label><input type="radio" name="mode" value="3d"> 3D XYZ 模式</label>
+            <label><input type="radio" name="mode" value="yt" checked> Y-T 波形图</label>
+            <label><input type="radio" name="mode" value="split"> XY + Y-T 并排</label>
+        </div>
+
+        <!-- 调节滑块区 -->
+        <div class="controls-grid">
+            <div class="slider-container">
+                <label>延迟补偿: <span id="latencyValue">0.00</span> 秒</label>
+                <input type="range" id="latency" min="-500" max="500" value="0" step="10">
+            </div>
+            <div class="slider-container">
+                <label>Y轴放大 (Gain): <span id="scaleYValue">1.0</span>x</label>
+                <input type="range" id="scaleY" min="0.1" max="5.0" value="1.0" step="0.1">
+            </div>
+            <div class="slider-container">
+                <label>X轴缩放 (Time/Div): <span id="scaleXValue">1.0</span>x</label>
+                <input type="range" id="scaleX" min="0.1" max="10.0" value="1.0" step="0.1">
+            </div>
+        </div>
+
+        <div class="progress-container">
+            <label>播放进度: <span id="progressTime">0.00 / 0.00 秒</span></label>
+            <input type="range" id="progressSlider" min="0" max="100" value="0" step="0.1" disabled>
+        </div>
+
+        <div class="time-display" id="timeDisplay">0.00 / 0.00 秒</div>
+
+        <div class="display-area">
+            <canvas id="canvas2d" width="400" height="400"></canvas>
+            <canvas id="canvas3d" width="400" height="400"></canvas>
+            <canvas id="canvasYT" width="600" height="400"></canvas>
+        </div>
+
+        <div class="hint">提示：在Y-T波形模式下，可调整X/Y轴缩放查看波形细节。</div>
+    </div>
+
+    <script>
+        const audioFile = document.getElementById('audioFile');
+        const fileWrapper = document.getElementById('fileWrapper');
+        const info = document.getElementById('info');
+        const playBtn = document.getElementById('playBtn');
+        const pauseBtn = document.getElementById('pauseBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        
+        // 滑块DOM
+        const latencySlider = document.getElementById('latency');
+        const latencyValue = document.getElementById('latencyValue');
+        const scaleYSlider = document.getElementById('scaleY');
+        const scaleYValue = document.getElementById('scaleYValue');
+        const scaleXSlider = document.getElementById('scaleX');
+        const scaleXValue = document.getElementById('scaleXValue');
+        const progressSlider = document.getElementById('progressSlider');
+        const progressTime = document.getElementById('progressTime');
+        
+        const canvas2d = document.getElementById('canvas2d');
+        const canvas3d = document.getElementById('canvas3d');
+        const canvasYT = document.getElementById('canvasYT');
+        const ctx2d = canvas2d.getContext('2d');
+        const ctxYT = canvasYT.getContext('2d');
+
+        const modeRadios = document.querySelectorAll('input[name="mode"]');
+
+        let audioContext = null;
+        let audioBuffer = null;
+        let source = null;
+        let analyser = null;
+        let splitter = null;
+        
+        let isPlaying = false;
+        let startTime = 0;
+        let pauseTime = 0;
+        let animationId = null;
+        let duration = 0;
+        let isSeeking = false;
+        
+        // 调节参数
+        let latencyOffset = 0;
+        let scaleY = 1.0;
+        let scaleX = 1.0;
+        let currentMode = 'yt'; // 默认Y-T
+
+        let renderer3d = null;
+        let scene3d = null;
+        let camera3d = null;
+        let line3d = null;
+
+        // --- 事件监听 (文件、模式、滑块) ---
+        fileWrapper.addEventListener('dragover', (e) => { e.preventDefault(); fileWrapper.style.borderColor = '#33ff33'; });
+        fileWrapper.addEventListener('dragleave', () => { fileWrapper.style.borderColor = '#006600'; });
+        fileWrapper.addEventListener('drop', (e) => {
+            e.preventDefault(); fileWrapper.style.borderColor = '#006600';
+            if (e.dataTransfer.files.length > 0) handleFile(e.dataTransfer.files[0]);
+        });
+        fileWrapper.addEventListener('click', () => audioFile.click());
+        audioFile.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) handleFile(e.target.files[0]);
+        });
+
+        modeRadios.forEach(radio => {
+            radio.addEventListener('change', (e) => {
+                currentMode = e.target.value;
+                updateCanvasDisplay();
+            });
+        });
+
+        latencySlider.addEventListener('input', (e) => {
+            latencyOffset = parseFloat(e.target.value) / 1000;
+            latencyValue.textContent = latencyOffset.toFixed(2);
+        });
+
+        scaleYSlider.addEventListener('input', (e) => {
+            scaleY = parseFloat(e.target.value);
+            scaleYValue.textContent = scaleY.toFixed(1);
+        });
+
+        scaleXSlider.addEventListener('input', (e) => {
+            scaleX = parseFloat(e.target.value);
+            scaleXValue.textContent = scaleX.toFixed(1);
+        });
+
+        progressSlider.addEventListener('mousedown', () => isSeeking = true);
+        progressSlider.addEventListener('input', (e) => {
+            if (!audioBuffer) return;
+            const seekTime = (parseFloat(e.target.value) / 100) * duration;
+            progressTime.textContent = `${seekTime.toFixed(2)} / ${duration.toFixed(2)} 秒`;
+            drawWaveformAtTime(seekTime);
+        });
+        progressSlider.addEventListener('change', (e) => {
+            if (!audioBuffer) return;
+            const wasPlaying = isPlaying;
+            const seekTime = (parseFloat(e.target.value) / 100) * duration;
+            if (isPlaying) pause();
+            pauseTime = seekTime;
+            if (wasPlaying) play();
+            else { updateProgress(seekTime); drawWaveformAtTime(seekTime); }
+            isSeeking = false;
+        });
+
+        // --- 核心逻辑 ---
+
+        function updateCanvasDisplay() {
+            canvas2d.style.display = (currentMode === '2d' || currentMode === 'split') ? 'block' : 'none';
+            canvas3d.style.display = currentMode === '3d' ? 'block' : 'none';
+            canvasYT.style.display = (currentMode === 'yt' || currentMode === 'split') ? 'block' : 'none';
+            if (currentMode === '3d' && !renderer3d) init3DScene();
+        }
+
+        async function handleFile(file) {
+            try {
+                info.textContent = '加载中...';
+                if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+                const arrayBuffer = await file.arrayBuffer();
+                audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+
+                if (audioBuffer.numberOfChannels < 2) {
+                    info.textContent = '错误：音频文件必须是立体声！';
+                    return;
+                }
+
+                duration = audioBuffer.duration;
+                info.textContent = `✓ 已加载: ${duration.toFixed(2)} 秒 | ${audioBuffer.sampleRate} Hz | 立体声`;
+                
+                playBtn.disabled = false; pauseBtn.disabled = false; stopBtn.disabled = false;
+                progressSlider.disabled = false; progressSlider.max = 100; progressSlider.value = 0;
+                stop();
+            } catch (error) {
+                info.textContent = '错误：无法加载音频文件';
+                console.error(error);
+            }
+        }
+
+        function init3DScene() {
+            const width = canvas3d.clientWidth; const height = canvas3d.clientHeight;
+            scene3d = new THREE.Scene();
+            camera3d = new THREE.PerspectiveCamera(75, width / height, 0.1, 1000);
+            renderer3d = new THREE.WebGLRenderer({ canvas: canvas3d, antialias: true, alpha: true });
+            renderer3d.setSize(width, height); renderer3d.setClearColor(0x000000);
+            camera3d.position.z = 2;
+            scene3d.add(new THREE.GridHelper(2, 8, 0x006600, 0x003300));
+            scene3d.add(new THREE.AxesHelper(1));
+        }
+
+        function draw() {
+            if (!isPlaying) return;
+            const currentTime = audioContext.currentTime - startTime + latencyOffset;
+            updateProgress(currentTime);
+
+            if (!analyser) {
+                animationId = requestAnimationFrame(draw);
+                return;
+            }
+
+            const bufferLength = analyser.fftSize; // 2048
+            const sampleIndex = Math.floor(currentTime * audioBuffer.sampleRate);
+            const windowSize = Math.min(bufferLength, audioBuffer.length - sampleIndex);
+
+            const leftData = new Float32Array(bufferLength);
+            const rightData = new Float32Array(bufferLength);
+
+            for (let i = 0; i < windowSize; i++) {
+                const index = sampleIndex + i;
+                if (index < audioBuffer.length) {
+                    leftData[i] = audioBuffer.getChannelData(0)[index];
+                    rightData[i] = audioBuffer.getChannelData(1)[index];
+                }
+            }
+
+            if (currentMode === '2d' || currentMode === 'split') drawScope2D(leftData, rightData, windowSize);
+            if (currentMode === '3d') drawScope3D(leftData, rightData, windowSize);
+            if (currentMode === 'yt' || currentMode === 'split') drawScopeYT(rightData, windowSize); // 默认用右声道(或混音)画YT
+
+            animationId = requestAnimationFrame(draw);
+        }
+
+        function drawScope2D(leftData, rightData, length) {
+            const width = canvas2d.width; const height = canvas2d.height;
+            const centerX = width / 2; const centerY = height / 2;
+
+            ctx2d.fillStyle = '#000'; ctx2d.fillRect(0, 0, width, height);
+
+            // 网格和十字
+            ctx2d.strokeStyle = '#003300'; ctx2d.lineWidth = 1; ctx2d.setLineDash([5, 5]);
+            for (let i = -1; i <= 1; i += 0.25) {
+                const x = centerX + i * centerX; const y = centerY + i * centerY;
+                ctx2d.beginPath(); ctx2d.moveTo(x, 0); ctx2d.lineTo(x, height); ctx2d.stroke();
+                ctx2d.beginPath(); ctx2d.moveTo(0, y); ctx2d.lineTo(width, y); ctx2d.stroke();
+            }
+            ctx2d.strokeStyle = '#006600'; ctx2d.lineWidth = 2; ctx2d.setLineDash([]);
+            ctx2d.beginPath(); ctx2d.moveTo(centerX, 0); ctx2d.lineTo(centerX, height); ctx2d.stroke();
+            ctx2d.beginPath(); ctx2d.moveTo(0, centerY); ctx2d.lineTo(width, centerY); ctx2d.stroke();
+
+            // 绘制波形 (应用 Y轴放大 scaleY 到 2D 增益)
+            ctx2d.strokeStyle = '#33ff33'; ctx2d.lineWidth = 2; ctx2d.globalAlpha = 0.8;
+            ctx2d.beginPath();
+            for (let i = 0; i < length; i++) {
+                const x = centerX + (leftData[i] * scaleY) * centerX;
+                const y = centerY - (rightData[i] * scaleY) * centerY;
+                if (i === 0) ctx2d.moveTo(x, y); else ctx2d.lineTo(x, y);
+            }
+            ctx2d.stroke(); ctx2d.globalAlpha = 1;
+        }
+
+        // ==========================================
+        // 核心更新：带缩放和坐标系的 Y-T 示波器
+        // ==========================================
+        function drawScopeYT(data, length) {
+            const width = canvasYT.width;
+            const height = canvasYT.height;
+            const centerY = height / 2;
+            const padding = 30; // 给文字留出边距
+
+            // 清空画布
+            ctxYT.fillStyle = '#000';
+            ctxYT.fillRect(0, 0, width, height);
+
+            // 1. 绘制网格、坐标轴和刻度
+            ctxYT.font = "10px Courier New";
+            ctxYT.fillStyle = "#00aa00";
+            ctxYT.textAlign = "right";
+            ctxYT.textBaseline = "middle";
+
+            // Y轴水平刻度线 (幅度)
+            ctxYT.strokeStyle = '#003300';
+            ctxYT.lineWidth = 1;
+            ctxYT.setLineDash([5, 5]);
+
+            const yTicks = [-1, -0.5, 0, 0.5, 1];
+            yTicks.forEach(tick => {
+                const yPos = centerY - (tick * centerY * 0.8); // 留出一点上下边距
+                
+                // 画网格虚线
+                ctxYT.beginPath();
+                ctxYT.moveTo(padding, yPos);
+                ctxYT.lineTo(width, yPos);
+                ctxYT.stroke();
+
+                // 画 Y 轴数值标签
+                ctxYT.fillText((tick / scaleY).toFixed(2), padding - 5, yPos);
+            });
+
+            // 中心坐标轴 (实线)
+            ctxYT.strokeStyle = '#006600';
+            ctxYT.lineWidth = 2;
+            ctxYT.setLineDash([]);
+            
+            // X主轴
+            ctxYT.beginPath();
+            ctxYT.moveTo(padding, centerY);
+            ctxYT.lineTo(width, centerY);
+            ctxYT.stroke();
+            
+            // Y主轴
+            ctxYT.beginPath();
+            ctxYT.moveTo(padding, 0);
+            ctxYT.lineTo(padding, height);
+            ctxYT.stroke();
+
+            // X轴垂直刻度线 (时间)
+            ctxYT.textAlign = "center";
+            ctxYT.textBaseline = "top";
+            ctxYT.strokeStyle = '#003300';
+            ctxYT.setLineDash([5, 5]);
+
+            const xDivs = 10; // X轴分为10格
+            for(let i = 0; i <= xDivs; i++) {
+                const xPos = padding + (i / xDivs) * (width - padding);
+                
+                // 画网格虚线
+                ctxYT.beginPath();
+                ctxYT.moveTo(xPos, 0);
+                ctxYT.lineTo(xPos, height);
+                ctxYT.stroke();
+
+                // 画 X 轴数值标签 (抽象时间格数)
+                if (i % 2 === 0) {
+                    ctxYT.fillText(i.toString(), xPos, centerY + 5);
+                }
+            }
+
+            // 2. 绘制波形 (应用缩放)
+            // 根据 scaleX 计算要显示的采样点数量。scaleX 越大，显示的点越少（放大看细节）
+            const displayLength = Math.max(10, Math.floor(length / scaleX)); 
+            
+            ctxYT.strokeStyle = '#33ff33';
+            ctxYT.lineWidth = 2;
+            ctxYT.setLineDash([]);
+            
+            // 裁剪区域，防止波形画到坐标轴数字上面
+            ctxYT.save(); 
+            ctxYT.beginPath();
+            ctxYT.rect(padding, 0, width - padding, height);
+            ctxYT.clip();
+
+            ctxYT.beginPath();
+            for (let i = 0; i < displayLength; i++) {
+                if (i >= data.length) break;
+
+                // X: 将缩放后的数据段均匀拉伸到画布宽度上
+                const x = padding + (i / (displayLength - 1)) * (width - padding);
+                
+                // Y: 获取数值，乘以 Y轴缩放，限制在合理范围内防止溢出画布
+                let val = data[i] * scaleY;
+                // 限制在 -1.25 到 1.25 之间，避免画线失控
+                val = Math.max(-1.25, Math.min(1.25, val));
+                const y = centerY - (val * centerY * 0.8);
+                
+                if (i === 0) {
+                    ctxYT.moveTo(x, y);
+                } else {
+                    ctxYT.lineTo(x, y);
+                }
+            }
+            ctxYT.stroke();
+            ctxYT.restore(); // 恢复裁剪之前的状态
+        }
+
+        function drawScope3D(leftData, rightData, length) {
+            if (!renderer3d) return;
+            if (line3d) scene3d.remove(line3d);
+
+            const geometry = new THREE.BufferGeometry();
+            const positions = new Float32Array(length * 3);
+            for (let i = 0; i < length; i++) {
+                positions[i * 3] = leftData[i] * scaleY;
+                positions[i * 3 + 1] = rightData[i] * scaleY;
+                positions[i * 3 + 2] = (i / length) * 2 - 1;
+            }
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            line3d = new THREE.Line(geometry, new THREE.LineBasicMaterial({ color: 0x33ff33, linewidth: 2 }));
+            scene3d.add(line3d);
+            renderer3d.render(scene3d, camera3d);
+        }
+
+        function drawWaveformAtTime(time) {
+            if (!audioBuffer) return;
+            const bufferLength = 2048;
+            const sampleIndex = Math.floor(time * audioBuffer.sampleRate);
+            const windowSize = Math.min(bufferLength, audioBuffer.length - sampleIndex);
+
+            const leftData = new Float32Array(bufferLength);
+            const rightData = new Float32Array(bufferLength);
+            for (let i = 0; i < windowSize; i++) {
+                const index = sampleIndex + i;
+                if (index < audioBuffer.length) {
+                    leftData[i] = audioBuffer.getChannelData(0)[index];
+                    rightData[i] = audioBuffer.getChannelData(1)[index];
+                }
+            }
+
+            if (currentMode === '2d' || currentMode === 'split') drawScope2D(leftData, rightData, windowSize);
+            if (currentMode === '3d') drawScope3D(leftData, rightData, windowSize);
+            if (currentMode === 'yt' || currentMode === 'split') drawScopeYT(rightData, windowSize);
+        }
+
+        // --- 播放控制 ---
+        function play() {
+            if (!audioBuffer || isPlaying) return;
+            source = audioContext.createBufferSource(); source.buffer = audioBuffer;
+            analyser = audioContext.createAnalyser(); analyser.fftSize = 2048; analyser.smoothingTimeConstant = 0.3;
+            splitter = audioContext.createChannelSplitter(2);
+            source.connect(splitter); splitter.connect(analyser, 0); source.connect(audioContext.destination);
+
+            const offset = pauseTime;
+            source.start(0, offset); startTime = audioContext.currentTime - offset; isPlaying = true;
+            source.onended = () => { if (isPlaying) stop(); };
+            draw();
+        }
+
+        function pause() {
+            if (!isPlaying) return;
+            pauseTime = audioContext.currentTime - startTime;
+            if (source) { source.stop(); source = null; }
+            isPlaying = false; cancelAnimationFrame(animationId);
+        }
+
+        function stop() {
+            if (source) { source.stop(); source = null; }
+            isPlaying = false; pauseTime = 0; startTime = 0;
+            cancelAnimationFrame(animationId); updateProgress(0);
+        }
+
+        function updateProgress(currentTime) {
+            const progress = Math.min((currentTime / duration) * 100, 100);
+            if (!isSeeking) progressSlider.value = progress;
+            progressTime.textContent = `${currentTime.toFixed(2)} / ${duration.toFixed(2)} 秒`;
+        }
+
+        playBtn.addEventListener('click', play);
+        pauseBtn.addEventListener('click', pause);
+        stopBtn.addEventListener('click', stop);
+
+        updateCanvasDisplay();
+    </script>
+</body>
+</html>
